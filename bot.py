@@ -13,10 +13,7 @@ logging.basicConfig(
 TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "✅ Bot tải video đã online!\n\n"
-        "Gửi link video (YouTube, Facebook, TikTok, Instagram...) mình sẽ tải về cho bạn."
-    )
+    await update.message.reply_text("✅ Bot tải video đã sẵn sàng!\nGửi link video bất kỳ (YouTube, Facebook, TikTok, Instagram...)")
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
@@ -26,7 +23,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = urls[0]
-    msg = await update.message.reply_text("⏳ Đang tải video... chờ chút (có thể 10-60 giây)")
+    msg = await update.message.reply_text("⏳ Đang tải...")
 
     try:
         import yt_dlp
@@ -36,39 +33,34 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'noplaylist': True,
             'quiet': True,
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
         if os.path.exists(filename):
-            size_mb = os.path.getsize(filename) / (1024 * 1024)
-            caption = f"✅ {info.get('title', 'Video')[:100]}\n📏 {size_mb:.1f} MB"
+            size_mb = os.path.getsize(filename) / (1024*1024)
+            caption = f"✅ {info.get('title', 'Video')[:100]}\nSize: {size_mb:.1f} MB"
 
             if size_mb < 45:
-                await msg.edit_text("✅ Tải xong! Gửi video...")
-                await update.message.reply_video(video=open(filename, 'rb'), caption=caption, supports_streaming=True)
+                await update.message.reply_video(video=open(filename, 'rb'), caption=caption)
             else:
-                await msg.edit_text("✅ Tải xong! Gửi Document...")
                 await update.message.reply_document(document=open(filename, 'rb'), caption=caption)
-
             os.remove(filename)
         else:
-            await msg.edit_text("❌ Không tìm thấy file.")
-
+            await msg.edit_text("❌ Không tải được file.")
     except Exception as e:
-        await msg.edit_text(f"❌ Lỗi: {str(e)[:250]}")
+        await msg.edit_text(f"❌ Lỗi: {str(e)[:200]}")
 
 def main():
     if not TOKEN:
-        logging.error("❌ BOT_TOKEN chưa được set trên Railway Variables!")
+        logging.error("BOT_TOKEN not found!")
         sys.exit(1)
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
 
-    logging.info("🚀 Bot đang chạy...")
+    logging.info("🚀 Bot started with polling")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
