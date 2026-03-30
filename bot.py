@@ -1,67 +1,53 @@
+import telebot
+import yt_dlp
 import os
-import logging
-import re
-import sys
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import uuid
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+bot = telebot.TeleBot(BOT_TOKEN)
 
-TOKEN = os.getenv("BOT_TOKEN")
+def download_video(url):
+    filename = f"video_{uuid.uuid4()}.mp4"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot tải video đã sẵn sàng!\nGửi link video bất kỳ (YouTube, Facebook, TikTok, Instagram...)")
+    ydl_opts = {
+        'outtmpl': filename,
+        'format': 'best[ext=mp4]',
+        'noplaylist': True,
+        'quiet': True
+    }
 
-async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text or ""
-    urls = re.findall(r'https?://\S+', text)
-    if not urls:
-        await update.message.reply_text("❌ Không tìm thấy link!")
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+    return filename
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    url = message.text.strip()
+
+    if not url.startswith("http"):
+        bot.reply_to(message, "Gửi link hợp lệ đi bro 😅")
         return
 
-    url = urls[0]
-    msg = await update.message.reply_text("⏳ Đang tải...")
+    msg = bot.reply_to(message, "⏳ Đang tải video...")
 
     try:
-        import yt_dlp
-        ydl_opts = {
-            'outtmpl': 'video_%(id)s.%(ext)s',
-            'format': 'best[height<=720]/best',
-            'noplaylist': True,
-            'quiet': True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+        file_path = download_video(url)
 
-        if os.path.exists(filename):
-            size_mb = os.path.getsize(filename) / (1024*1024)
-            caption = f"✅ {info.get('title', 'Video')[:100]}\nSize: {size_mb:.1f} MB"
+        file_size = os.path.getsize(file_path)
 
-            if size_mb < 45:
-                await update.message.reply_video(video=open(filename, 'rb'), caption=caption)
-            else:
-                await update.message.reply_document(document=open(filename, 'rb'), caption=caption)
-            os.remove(filename)
-        else:
-            await msg.edit_text("❌ Không tải được file.")
+        # Telegram limit ~50MB
+        if file_size > 50 * 1024 * 1024:
+            bot.edit_message_text("⚠️ Video quá nặng (>50MB), không gửi được.", message.chat.id, msg.message_id)
+            os.remove(file_path)
+            return
+
+        with open(file_path, 'rb') as f:
+            bot.send_video(message.chat.id, f)
+
+        os.remove(file_path)
+
     except Exception as e:
-        await msg.edit_text(f"❌ Lỗi: {str(e)[:200]}")
+        bot.edit_message_text(f"❌ Lỗi: {str(e)}", message.chat.id, msg.message_id)
 
-def main():
-    if not TOKEN:
-        logging.error("BOT_TOKEN not found!")
-        sys.exit(1)
-
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
-
-    logging.info("🚀 Bot started with polling")
-    app.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    main()
+bot.infinity_polling()
